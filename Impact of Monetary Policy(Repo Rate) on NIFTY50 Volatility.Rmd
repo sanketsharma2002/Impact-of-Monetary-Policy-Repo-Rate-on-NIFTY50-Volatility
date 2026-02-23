@@ -1,0 +1,112 @@
+---
+title: "Impact of Monetary Policy(Repo Rate) on NIFTY50 Volatility."
+author: "Sanket Sharma"
+date: "2026-02-21"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+
+```{r}
+#STEP1
+#install.packages(c("quantmod","tseries","rugarch","xts","PerformanceAnalytics"))
+```
+```{r}
+#STEP2
+library(quantmod)
+library(tseries)
+library(rugarch)
+library(xts)
+library(PerformanceAnalytics)
+```
+```{r}
+#STEP3
+getSymbols("^NSEI",src = "yahoo")
+nifty_prices<-NSEI[,4] #4th COLUMN IS CLOSE PRICE
+head(nifty_prices)
+```
+```{r}
+#STEP4
+returns<-dailyReturn(nifty_prices,type="log")#prices are non-stationary 
+head(returns)
+```
+```{r}
+#STEP5
+plot(returns, main="NIFTY Log Returns")#check volatility clustering. This justifies using GARCH
+```
+```{r}
+#STEP6
+adf.test(returns)#GARCH requires stationary series
+```
+```{r}
+#STEP7
+getSymbols("IRSTCI01INM156N",src = "FRED")#India short term interest rate
+```
+```{r}
+#STEP8
+repo_xts<-IRSTCI01INM156N
+repo_xts<-repo_xts["2007-09-17/"]
+repo_daily<-merge(returns,repo_xts,fill = na.locf)#convert repo monthly to repo daily
+final_data<-na.omit(repo_daily)#remove missing values
+```
+```{r}
+#SREP9
+returns_final<-final_data[,1]
+repo_final<-as.matrix(final_data[,2])
+length(returns_final)#returns_final must be equal to repo_final
+nrow(repo_final)
+```
+```{r}
+#STEP9
+#estimate basic GARCH(1,1)
+spec<-ugarchspec(
+  variance.model = list(model="sGARCH",
+  garchOrder=c(1,1)),
+  mean.model = list(armaOrder=c(1,1)),
+  distribution.model = "norm"
+)
+fit<-ugarchfit(spec=spec, data=returns)
+show(fit)
+#alpha1(ARCH)- impact of recent stocks
+#beta1(GARCH)- persistence
+#alpha1+beta1- strong volatility persistence
+```
+```{r}
+#STEP10
+#GARCH with Repo
+spec_repo<-ugarchspec(
+  variance.model = list(model="sGARCH",
+  garchOrder=c(1,1)),
+  mean.model = list(armaOrder=c(1,1),
+  external.regressors=repo_final),
+  distribution.model = "norm"
+)
+fit_repo<-ugarchfit(spec=spec_repo,
+                    data=returns_final)
+show(fit_repo)
+```
+```{r}
+#STEP11
+#(A-extract standardize residuals)
+residuals_std<-(residuals(fit_repo,
+standardize=TRUE))
+
+#B-Ljung-Box Test(serial correlation)
+Box.test(residuals_std,lag=10, type="Ljung")
+
+#C-ARCH effect
+#install.packages("FinTS")
+library(FinTS)
+ArchTest(residuals_std, lags=10)
+
+plot(residuals_std, main="Standardized Residuals")
+```
+```{r}
+#STEP12
+#plot conditional volatility
+sigma<-sigma(fit_repo)
+plot(sigma,main="Estimated Volatility")
+```
+
